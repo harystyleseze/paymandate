@@ -326,6 +326,75 @@ fn revoke_fails_for_unknown_mandate() {
     assert_eq!(r, Err(Ok(Error::MandateNotFound)));
 }
 
+#[test]
+fn revoke_succeeds_after_allowance_horizon_passed_without_touching_manual_allowance() {
+    // CRITICAL regression guard: once the stored allowance horizon passes,
+    // the contract-granted allowance is expired token-side (reads 0). If the
+    // payer manually re-approved with a later expiry, revoke must NOT call
+    // approve(amount>0, stale_expiry) — the SAC panics on that — and must
+    // not clobber the payer's manual allowance. It just marks Revoked.
+    let s = setup();
+    let id = create_default(&s);
+
+    // Advance past the stored allowance horizon (contract allowance expires).
+    s.env
+        .ledger()
+        .with_mut(|li| li.sequence_number = LIVE_UNTIL + 1);
+
+    // Payer manually grants an unrelated allowance with a later expiry.
+    s.token.approve(
+        &s.payer,
+        &s.client.address,
+        &(7 * ONE),
+        &(LIVE_UNTIL + 1000),
+    );
+
+    s.client.revoke(&id); // must not panic
+
+    assert_eq!(s.client.get_mandate(&id).status, MandateStatus::Revoked);
+    // Manual allowance untouched — it's outside the mandate system.
+    assert_eq!(s.token.allowance(&s.payer, &s.client.address), 7 * ONE);
+    // And charges are blocked regardless.
+    assert_eq!(
+        s.client.try_charge(&id, &ONE),
+        Err(Ok(Error::MandateNotActive))
+    );
+}
+
+#[test]
+fn revoke_twice_fails_with_not_active() {
+    let s = setup();
+    let id = create_default(&s);
+    s.client.revoke(&id);
+    assert_eq!(s.client.try_revoke(&id), Err(Ok(Error::MandateNotActive)));
+}
+
+#[test]
+fn create_rejects_merchant_equal_to_payer() {
+    let s = setup();
+    let r = s.client.try_create(
+        &s.payer,
+        &s.payer, // merchant == payer
+        &s.token_address,
+        &CAP,
+        &PERIOD,
+        &(T0 + PERIOD),
+        &LIVE_UNTIL,
+    );
+    assert_eq!(r, Err(Ok(Error::InvalidParams)));
+}
+
+#[test]
+fn charge_succeeds_in_the_last_second_before_expiry() {
+    let s = setup();
+    let id = create_default(&s);
+    s.env
+        .ledger()
+        .with_mut(|li| li.timestamp = T0 + 3 * PERIOD - 1);
+    s.client.charge(&id, &ONE); // must succeed: now < expires_at
+    assert_eq!(s.token.balance(&s.merchant), ONE);
+}
+
 // ----------------------------------------------------------------- query ---
 
 #[test]

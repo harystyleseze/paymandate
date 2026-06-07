@@ -11,6 +11,8 @@
 5. **[security-sensitive] Pause/guardian design RFC** — should the protocol have an emergency stop? Trade-offs vs. credible neutrality. AC: written RFC with recommendation, discussed before any code.
 6. **[advanced] Mandate metadata field** — optional `name/ref` (e.g. plan id) for indexers. AC: bounded bytes; storage cost documented; tests.
 7. **[intermediate] `get_mandates_by_payer` pagination design** — on-chain vs indexer trade-off analysis. AC: decision doc; if indexer, event schema confirmed sufficient.
+7a. **[advanced] Archival-restore guide + tooling for expired mandate entries** — document/automate restoring an archived mandate entry so revoke/charge work again; cover the orphaned-allowance case from SECURITY.md §2. AC: doc + script tested against an archived entry on testnet.
+7b. **[security-sensitive] Multi-mandate allowance interleaving property tests** — model create/charge/revoke interleavings across ≥3 mandates per payer (incl. manual `token.approve` interference) and assert pool invariants. AC: property test suite in CI; SECURITY.md §1 updated with findings.
 
 ## TypeScript SDK (`sdk/typescript`)
 

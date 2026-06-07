@@ -172,6 +172,7 @@ impl MandateContract {
             || period_secs == 0
             || expires_at <= now
             || allowance_live_until <= env.ledger().sequence()
+            || merchant == payer
         {
             return Err(Error::InvalidParams);
         }
@@ -192,13 +193,17 @@ impl MandateContract {
             .ok_or(Error::InvalidParams)?;
         token_client.approve(&payer, &contract, &new_allowance, &allowance_live_until);
 
-        // Persist.
+        // Persist. Keep the instance (and the NextId counter in it) alive on
+        // a max-TTL horizon so the counter can never archive and reset while
+        // mandates still exist — id reuse would silently overwrite them.
         let id: u64 = env
             .storage()
             .instance()
             .get(&DataKey::NextId)
             .unwrap_or(0u64);
         env.storage().instance().set(&DataKey::NextId, &(id + 1));
+        let max_ttl = MAX_TTL_LEDGERS as u32;
+        env.storage().instance().extend_ttl(max_ttl, max_ttl);
 
         let mandate = Mandate {
             payer: payer.clone(),
@@ -263,6 +268,16 @@ impl MandateContract {
         if spent > m.amount_per_period {
             return Err(Error::ExceedsPeriodCap);
         }
+        // Defense in depth: the per-period cap over the mandate's period
+        // slots already implies the lifetime ceiling; enforce it explicitly
+        // anyway so revoke's allowance math can never be undermined.
+        let lifetime_spent = m
+            .lifetime_spent
+            .checked_add(amount)
+            .ok_or(Error::ExceedsPeriodCap)?;
+        if lifetime_spent > m.lifetime_ceiling {
+            return Err(Error::ExceedsPeriodCap);
+        }
 
         // Pull the funds: payer → merchant, drawing on the allowance.
         token::TokenClient::new(&env, &m.token).transfer_from(
@@ -273,7 +288,7 @@ impl MandateContract {
         );
 
         m.spent_in_period = spent;
-        m.lifetime_spent += amount;
+        m.lifetime_spent = lifetime_spent;
         write_mandate(&env, id, &m, m.expires_at.saturating_sub(now));
 
         MandateCharged {
@@ -294,17 +309,24 @@ impl MandateContract {
         let mut m = read_mandate(&env, id)?;
         m.payer.require_auth();
 
-        if m.status == MandateStatus::Active {
+        if m.status != MandateStatus::Active {
+            return Err(Error::MandateNotActive);
+        }
+
+        // Only release allowance while the stored horizon is still live.
+        // Past the horizon the contract-granted allowance has expired on the
+        // token side (reads 0); calling approve(amount > 0, stale_expiry)
+        // would panic in the SAC, and any nonzero allowance remaining is the
+        // payer's own manual grant, outside the mandate system — leave it.
+        // Note: the approve arguments stay deterministic from contract state
+        // (auth-pinned args must never derive from current ledger state, or
+        // the simulated auth tree mismatches at apply time and traps).
+        if m.allowance_live_until > env.ledger().sequence() {
             let unspent = m.lifetime_ceiling - m.lifetime_spent;
             let token_client = token::TokenClient::new(&env, &m.token);
             let contract = env.current_contract_address();
             let existing = token_client.allowance(&m.payer, &contract);
             let reduced = (existing - unspent).max(0);
-            // Reuse the stored allowance horizon: approve's arguments are
-            // auth-pinned, so they must be deterministic from contract
-            // state, never from current ledger state (which differs between
-            // simulation and apply). For amount == 0 the expiry argument is
-            // ignored by SEP-41 tokens anyway.
             token_client.approve(&m.payer, &contract, &reduced, &m.allowance_live_until);
         }
 
