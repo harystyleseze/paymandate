@@ -1,0 +1,24 @@
+{
+  "name": "@paymandate/sdk",
+  "version": "0.0.1",
+  "description": "TypeScript SDK for PayMandate — recurring payment mandates on Stellar/Soroban",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/paymandate/paymandate",
+    "directory": "sdk/typescript"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -1,0 +1,38 @@
+name: Task
+description: A scoped piece of work (feature, fix, docs, design)
+labels: ["needs-triage"]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why this matters — what breaks or is missing without it.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Verifiable checklist — a PR is mergeable when every box can be checked.
+      placeholder: |
+        - [ ] ...
+        - [ ] Tests cover the new behavior
+        - [ ] Docs updated if behavior changed
+    validations:
+      required: true
+  - type: textarea
+    id: pointers
+    attributes:
+      label: Pointers
+      description: Relevant files, functions, prior art, references.
+  - type: dropdown
+    id: difficulty
+    attributes:
+      label: Difficulty
+      options:
+        - good first issue (no Rust)
+        - intermediate
+        - advanced
+        - security-sensitive (gated)
+    validations:
+      required: true
